@@ -5,16 +5,16 @@
 ## Một bài học nhỏ trong "compound indexes" ("chỉ số kết hợp")
 
 This document starts out trivial and perhaps boring, but builds up to more interesting information, perhaps things you did not realize about how MariaDB and MySQL indexing works.
+Tài liệu này mở đầu bằng những thứ có vẻ tầm thường và nhàm chán, nhưng để tạo lên những thông tin thú vị, có lẽ bạn đã không nhận ra những điều về cách mà MariaDB và MySQL đánh index làm việc như nào.
+Điều này cũng giải thích [EXPLAIN][1] (tới một mức độ nào đó).
 
-This also explains [EXPLAIN][1] (to some extent).
+(Phần lớn được áp dụng vào những loại csdl không phải của MySql.)
 
-(Most of this applies to non-MySQL brands of databases, too.)
+## Bàn luận về truy vấn ( truy vấn để bàn luận)
 
-## The query to discuss
+Câu hỏi là "Khi nào Andrew Johnson làm tổng thống của nước Mỹ?".
 
-The question is "When was Andrew Johnson president of the US?".
-
-The available table `Presidents` looks like:
+Bảng `Presidents` có sẵn như này:
     
     
     +-----+------------+----------------+-----------+
@@ -31,9 +31,9 @@ The available table `Presidents` looks like:
     ...
     
 
-("Andrew Johnson" was picked for this lesson because of the duplicates.)
+("Andrew Johnson" được chọn cho bài học này vì nó có nhiều bản sao.)
 
-What index(es) would be best for that question? More specifically, what would be best for
+Chỉ mục nào sẽ là tốt nhất cho câu hỏi này? Cụ thể hơn là, những gì sẽ là tốt nhất cho câu truy vấn này:
     
     
         SELECT  term
@@ -42,18 +42,18 @@ What index(es) would be best for that question? More specifically, what would be
               AND  first_name = 'Andrew';
     
 
-Some INDEXes to try...
+Thử một số Index...
 
-* No indexes 
-* INDEX(first_name), INDEX(last_name) (two separate indexes) 
-* "Index Merge Intersect" 
+* No indexes (*Không index*)
+* INDEX(first_name), INDEX(last_name) (two separate indexes) (*Phân thành 2 chỉ mục*)
+* "Index Merge Intersect" (*Hợp nhất các chỉ mục*)
 * INDEX(last_name, first_name) (a "compound" index) 
 * INDEX(last_name, first_name, term) (a "covering" index) 
-* Variants 
+* Variants (*Các biến thể*)
 
-## No indexes
+## Không đánh chỉ mục
 
-Well, I am fudging a little here. I have a PRIMARY KEY on `seq`, but that has no advantage on the query we are studying.
+Cũng tốt thôi, tôi nói linh tinh 1 chút ở đây. Tôi có một PRIMARY Key ở `seq`, nhưng nó lại không có nhiều lợi ích cho câu truy vấn mà chúng ta đang tìm hiểu ( nghiên cứu).
     
     
     mysql>  SHOW CREATE TABLE Presidents G
@@ -88,26 +88,36 @@ Well, I am fudging a little here. I have a PRIMARY KEY on `seq`, but that has no
             Extra: Using where
     
 
-## Implementation details
+## Triển khai chi tiết
 
-First, let's describe how InnoDB stores and uses indexes.
+Đầu tiên, hãy mô tả cách mà InnoDB lưu trữ và sử dụng các chỉ mục.
+* Dữ liệu và PRIMARY KEY là các "clustered" cùng nằm trên 1 Btree.
+* Truy vấn trên Btree thì khá nhanh và hiệu quả. Đối với bảng có hàng triệu bản ghi được chia thành 3 cấp độ của Btree, và 2 cấp độ cao nhất có thể được lưu trữ trong cache.
+* Với mỗi chỉ mục phụ trong 1 BTree khác, với một PRIMARY KEY ở tại nút lá.
+* Thu thập các item 'liên tục' (theo các chỉ mục) từ 1 Btree rất là hiệu quả vì chúng được lưu trữ 1 cách liên tục.
 
-* The data and the PRIMARY KEY are "clustered" together in on BTree. 
-* A BTree lookup is quite fast and efficient. For a million-row table there might be 3 levels of BTree, and the top two levels are probably cached. 
-* Each secondary index is in another BTree, with the PRIMARY KEY at the leaf. 
-* Fetching 'consecutive' (according to the index) items from a BTree is very efficient because they are stored consecutively. 
-* For the sake of simplicity, we can count each BTree lookup as 1 unit of work, and ignore scans for consecutive items. This approximates the number of disk hits for a large table in a busy system. 
+* Vì mục đích đơn giản, chúng ta có thể đếm được mỗi truy vấn trên BTree như 1 đơn vị của công việc, và bỏ qua các lần quét cho những mục tiếp theo. Cái này gần xấp xỉ bằng số lần truy cập vào ổ đĩa trên 1 bảng lớn trong một hệ thống bận rộn.
 
-For MyISAM, the PRIMARY KEY is not stored with the data, so think of it as being a secondary key (over-simplified).
+Với MyISAM, một PRIMARY KEY sẽ không lưu trữ dữ liệu, và vì vậy hãy coi nó như là khoá phụ(quá đơn giản).
 
 ## INDEX(first_name), INDEX(last_name)
 
-The novice, once he learns about indexing, decides to index lots of columns, one at a time. But...
+Với người mới làm quen, khi học về cách lập chỉ mục, và quyết định lập chỉ mục cho nhiều cột cùng một lúc. Nhưng...
 
-MySQL rarely uses more than one index at a time in a query. So, it will analyze the possible indexes.
+MySQL lại hiếm khi sử dụng nhiều hơn một chỉ mục cùng một lúc trong câu truy vấn, Vì vậy, nó sẽ tự phân tích các chỉ mục có thể thực hiện.
 
-* first_name -- there are 2 possible rows (one BTree lookup, then scan consecutively) 
-* last_name -- there are 2 possible rows Let's say it picks last_name. Here are the steps for doing the SELECT: 1\. Using INDEX(last_name), find 2 index entries with last_name = 'Johnson'. 2\. Get the PRIMARY KEY (implicitly added to each secondary index in InnoDB); get (17, 36). 3\. Reach into the data using seq = (17, 36) to get the rows for Andrew Johnson and Lyndon B. Johnson. 4\. Use the rest of the WHERE clause filter out all but the desired row. 5\. Deliver the answer (1865-1869). 
+* first_name -- ở đây có 2 row có thể dùng được (khi có một truy vấn Btree, chúng quét liên tục) 
+* last_name -- ở đây cũng có 2 row có thể dùng được, giả sử nó lấy last_name. Ở đây là các bước thực hiện lệnh SELECT: 
+
+1\. Sử dụng INDEX(last_name), tìm 2 chỉ mục có mục với last_name = 'Johnson'. 
+
+2\. Lấy PRIMARY KEY (được thêm ngầm vào mỗi chỉ mục phụ trong InnoDB); lấy giá trị (17, 36). 
+
+3\. Tiếp cận dữ liệu bằng cách sử dụng seq = (17, 36) để lấy những dòng cho Andrew Johnson và Lyndon B. Johnson. 
+
+4\. Sử dụng phần còn lại của mệnh đề WHERE để lọc ra những hàng mong muốn từ tất cả các kết quả. 
+3. 
+5\. Gửi lại câu trả lời (1865-1869). 
     
     
     mysql>  EXPLAIN  SELECT  term
@@ -125,9 +135,19 @@ MySQL rarely uses more than one index at a time in a query. So, it will analyze 
             Extra: Using where
     
 
-## "Index Merge Intersect"
+## "Hợp nhất các chỉ mục"
 
-OK, so you get really smart and decide that MySQL should be smart enough to use both name indexes to get the answer. This is called "Intersect". 1\. Using INDEX(last_name), find 2 index entries with last_name = 'Johnson'; get (7, 17) 2\. Using INDEX(first_name), find 2 index entries with first_name = 'Andrew'; get (17, 36) 3\. "And" the two lists together (7,17) & (17,36) = (17) 4\. Reach into the data using seq = (17) to get the row for Andrew Johnson. 5\. Deliver the answer (1865-1869).
+Tốt thôi, nếu bạn thực sự thông minh và quyết định MySQL có đủ thông minh để sử dụng cùng 1 lúc 2 tên chỉ mục để lấy câu trả lời. Cái này gọi là "giao điểm".
+ 
+ 1\. Sử dụng INDEX(last_name), tìm 2 chỉ mục có mục với last_name = 'Johnson'; lấy (7, 17) 
+ 
+ 2\. Sử dụng INDEX(first_name), tìm 2 chỉ mục có mục với first_name = 'Andrew'; lấy (17, 36) 
+ 
+ 3\. "And" (Hợp nhất) hai danh sách lại với nhau là (7,17) và (17,36) = (17) 
+ 
+ 4\.Tiếp cận dữ liệu bằng cách sử dụng seq = (17) để lấy các row cho Andrew Johnson. 
+ 
+ 5\. Gửi lại câu trả lời (1865-1869).
     
     
                id: 1
@@ -146,7 +166,13 @@ The EXPLAIN fails to give the gory details of how many rows collected from each 
 
 ## INDEX(last_name, first_name)
 
-This is called a "compound" or "composite" index since it has more than one column. 1\. Drill down the BTree for the index to get to exactly the index row for Johnson+Andrew; get seq = (17). 2\. Reach into the data using seq = (17) to get the row for Andrew Johnson. 3\. Deliver the answer (1865-1869). This is much better. In fact this is usually the "best".
+Cái này có thể gọi là chỉ mục "hợp chất" hoặc "hỗn hợp" từ khi nó có nhiều hơn một cột.
+ 
+ 1\. Drill down the BTree for the index to get to exactly the index row for Johnson+Andrew; get seq = (17). 
+ 
+ 2\. Reach into the data using seq = (17) to get the row for Andrew Johnson. 
+ 
+ 3\. Gửi lại các câu trả lời (1865-1869). Thế này tốt hơn. Trong thực tế thì đây có thể là cách "tốt nhất".
     
     
         ALTER TABLE Presidents
@@ -165,9 +191,13 @@ This is called a "compound" or "composite" index since it has more than one colu
             Extra: Using where
     
 
-## "Covering": INDEX(last_name, first_name, term)
+## "Bao đóng": INDEX(last_name, first_name, term)
 
-Surprise! We can actually do a little better. A "Covering" index is one in which _all_ of the fields of the SELECT are found in the index. It has the added bonus of not having to reach into the "data" to finish the task. 1\. Drill down the BTree for the index to get to exactly the index row for Johnson+Andrew; get seq = (17). 2\. Deliver the answer (1865-1869). The "data" BTree is not touched; this is an improvement over "compound".
+Ngạc nhiên chưa! Chúng ta hoàn toàn có thể làm nó tốt hơn 1 chút. Một chỉ mục "bao đóng" là một trong tất cả các trường của mệnh đề SELECT có thể tìm thấy được. Nó được thêm vào mà không cần tiếp cận các dữ liệu để hoàn thành nhiệm vụ.
+ 
+ 1\. Đào sâu xuống dưới của BTree để xác định các dòng chỉ mục 1 cách chính xác cho Johnson+Andrew; lấy seq = (17). 
+ 
+ 2\. Gửi lại câu trả lời (1865-1869). Cái "dữ liệu" BTree không được đụng vào; đây là một trong những cải tiến so với "hợp nhất".
     
     
         ... ADD INDEX covering(last_name, first_name, term);
@@ -184,17 +214,17 @@ Surprise! We can actually do a little better. A "Covering" index is one in which
             Extra: Using where; Using index   <-- Note
     
 
-Everything is similar to using "compound", except for the addition of "Using index".
+Mọi thứ đề tương tự như khi sử dụng "hợp nhất", ngoại trừ việc bổ sung thêm "sử dụng các chỉ mục".
 
-## Variants
+## Các biến thể
 
-* What would happen if you shuffled the fields in the WHERE clause? Answer: The order of ANDed things does not matter. 
-* What would happen if you shuffled the fields in the INDEX? Answer: It may make a huge difference. More in a minute. 
-* What if there are extra fields on the the end? Answer: Minimal harm; possibly a lot of good (eg, 'covering'). 
-* Reduncancy? That is, what if you have both of these: INDEX(a), INDEX(a,b)? Answer: Reduncy costs something on INSERTs; it is rarely useful for SELECTs. 
-* Prefix? That is, INDEX(last_name(5). first_name(5)) Answer: Don't bother; it rarely helps, and often hurts. (The details are another topic.) 
+* Điều gì sẽ xảy ra nếu bạn xáo trộn các trường trong mệnh đề WHERE?Câu trả lời là: Thứ tự của các phần được AND với nhau không quan trọng. 
+* Điều gì sẽ xảy ra nếu bạn xáo trộn các trường trong mệnh đề Index? Câu trả lời là: Nó có thể tạo ra những thay đổi đáng kể. Hơn cái một chút nhiều. 
+* Điều gì sẽ xảy ra nếu bổ sung thêm các trường ở cuối? Câu trả lời là: Tác hại khá nhỏ; cũng có thể có rất nhiều (ví dụ như, 'covering'). 
+* Dư thừa? Với điều này, nếu bạn có cả 2 cái sau: INDEX(a), INDEX(a,b)? Câu trả lời là: Việc dư thừa chi phí trên mệnh đề INSERTs; nó rất hiếm khi hữu ích đối với SELECTs. 
+* Tiền tố? Với vấn đề này, INDEX(last_name(5). first_name(5)) Câu trả lời là: Không cần bận tâm; nó hiếm khi có ích, và thường gây hại hơn. (Chi tiết sẽ được đề cập trong 1 chủ đề khác.) 
 
-## More examples:
+## Thêm các ví dụ:
     
     
         INDEX(last, first)
