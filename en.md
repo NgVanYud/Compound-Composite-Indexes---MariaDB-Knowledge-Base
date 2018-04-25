@@ -4,7 +4,6 @@
 
 ## Một bài học nhỏ trong "compound indexes" ("chỉ số kết hợp")
 
-This document starts out trivial and perhaps boring, but builds up to more interesting information, perhaps things you did not realize about how MariaDB and MySQL indexing works.
 Tài liệu này mở đầu bằng những thứ có vẻ tầm thường và nhàm chán, nhưng để tạo lên những thông tin thú vị, có lẽ bạn đã không nhận ra những điều về cách mà MariaDB và MySQL đánh index làm việc như nào.
 Điều này cũng giải thích [EXPLAIN][1] (tới một mức độ nào đó).
 
@@ -163,14 +162,16 @@ Tốt thôi, nếu bạn thực sự thông minh và quyết định MySQL có �
     
 
 The EXPLAIN fails to give the gory details of how many rows collected from each index, etc.
+**EXPLAIN không cung cấp thông tin chi tiết về số lượng hàng được thu thập từ mỗi chỉ mục, v.v.**
 
 ## INDEX(last_name, first_name)
 
 Cái này có thể gọi là chỉ mục "hợp chất" hoặc "hỗn hợp" từ khi nó có nhiều hơn một cột.
  
- 1\. Drill down the BTree for the index to get to exactly the index row for Johnson+Andrew; get seq = (17). 
+ 1\. Drill down the BTree for the index to get to exactly the index row for Johnson+Andrew; get seq = (17). **1. Tìm hiểu về BTree để chỉ mục có được chính xác hàng chỉ mục cho Johnson + Andrew; lấy seq = (17)**
  
  2\. Reach into the data using seq = (17) to get the row for Andrew Johnson. 
+ **Tiếp cận dữ liệu bằng cách sử dụng seq = (17) để lấy hàng cho Andrew Johnson**
  
  3\. Gửi lại các câu trả lời (1865-1869). Thế này tốt hơn. Trong thực tế thì đây có thể là cách "tốt nhất".
     
@@ -219,8 +220,8 @@ Mọi thứ đề tương tự như khi sử dụng "hợp nhất", ngoại tr�
 ## Các biến thể
 
 * Điều gì sẽ xảy ra nếu bạn xáo trộn các trường trong mệnh đề WHERE?Câu trả lời là: Thứ tự của các phần được AND với nhau không quan trọng. 
-* Điều gì sẽ xảy ra nếu bạn xáo trộn các trường trong mệnh đề Index? Câu trả lời là: Nó có thể tạo ra những thay đổi đáng kể. Hơn cái một chút nhiều. 
-* Điều gì sẽ xảy ra nếu bổ sung thêm các trường ở cuối? Câu trả lời là: Tác hại khá nhỏ; cũng có thể có rất nhiều (ví dụ như, 'covering'). 
+* Điều gì sẽ xảy ra nếu bạn xáo trộn các trường trong mệnh đề Index? Câu trả lời là: Nó có thể tạo ra những thay đổi đáng kể. Hơn cái một chút nhiều **có thể nhiều hơn 1 phút**. 
+* Điều gì sẽ xảy ra nếu bổ sung thêm các trường ở cuối? Câu trả lời là: Tác hại khá nhỏ; cũng có thể có rất nhiều **mặt tốt** (ví dụ như, 'covering'). 
 * Dư thừa? Với điều này, nếu bạn có cả 2 cái sau: INDEX(a), INDEX(a,b)? Câu trả lời là: Việc dư thừa chi phí trên mệnh đề INSERTs; nó rất hiếm khi hữu ích đối với SELECTs. 
 * Tiền tố? Với vấn đề này, INDEX(last_name(5). first_name(5)) Câu trả lời là: Không cần bận tâm; nó hiếm khi có ích, và thường gây hại hơn. (Chi tiết sẽ được đề cập trong 1 chủ đề khác.) 
 
